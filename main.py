@@ -2,53 +2,55 @@ import hashlib
 import os
 from pathlib import Path
 
-from dotenv import load_dotenv
+import keyring
 from InquirerPy import prompt
 from openai import OpenAI
 
-# Carregar variáveis do .env
-load_dotenv()
+# 🔍 Obtém o diretório onde o script `main.py` está localizado
+BASE_DIR = Path(__file__).parent.resolve()
+download_dir = BASE_DIR / "downloads_ia"
+download_dir.mkdir(exist_ok=True)  # Cria a pasta se não existir
 
-API_KEY = os.getenv("OPENAI_API_KEY")
+# 🔐 Tentar carregar a chave da API do keyring
+API_KEY = keyring.get_password("openai", "api_key")
+
 if not API_KEY:
-    raise ValueError("A chave da API não está configurada no arquivo .env.")
+    raise ValueError(
+        "A chave da API não foi encontrada no keyring. Configure-a primeiro."
+    )
 
 client = OpenAI(api_key=API_KEY)
 
-# Configurações de modelos e vozes
+# 🎛️ Configurações de modelos e vozes
 MODELS = {
     "tts-1": "Menor qualidade | barato",
     "tts-1-hd": "Maior qualidade | 2x mais caro",
 }
-VOICES = ["echo", "alloy", "fable", "onyx"]
-
-# Diretório para salvar os áudios
-download_dir = Path("downloads_ia")
-download_dir.mkdir(exist_ok=True)
+VOICES = ["echo", "alloy", "fable", "onyx", "ash", "coral", "nova", "sage", "shimmer"]
 
 
-# Funções Auxiliares
+# 🔹 Funções auxiliares
 def get_cache_key(text, voice, speed):
     """Gera uma chave única para cada combinação de texto, voz e velocidade."""
     key = f"{text}-{voice}-{speed}"
     return hashlib.md5(key.encode()).hexdigest()
 
 
-def load_from_cache(cache_key, download_dir):
+def load_from_cache(cache_key):
     """Verifica se o arquivo de áudio já foi gerado anteriormente."""
     cache_file = download_dir / f"{cache_key}.mp3"
     if cache_file.exists():
-        print(f"Áudio encontrado no cache: {cache_file}")
+        print(f"🎵 Áudio encontrado no cache: {cache_file}")
         return cache_file
     return None
 
 
-def save_to_cache(response, cache_key, download_dir):
+def save_to_cache(response, cache_key):
     """Salva o áudio gerado no cache para reutilização futura."""
     cache_file = download_dir / f"{cache_key}.mp3"
     with open(cache_file, "wb") as f:
         f.write(response.content)
-    print(f"Áudio salvo no cache: {cache_file}")
+    print(f"✅ Áudio salvo no cache: {cache_file}")
     return cache_file
 
 
@@ -78,11 +80,11 @@ def generate_speech(client, text, voice="echo", speed=0.96):
 def escolher_opcao(menu):
     """Exibe um menu interativo para o usuário selecionar uma opção."""
     result = prompt(menu)
-    return result[menu[0]["name"]]  # Correção aplicada
+    return result[menu[0]["name"]]
 
 
 def main():
-    # Menu para seleção de voz
+    # 🎤 Menu para seleção de voz
     menu_voz = [
         {
             "type": "list",
@@ -94,10 +96,10 @@ def main():
 
     selected_voice = escolher_opcao(menu_voz)
     if selected_voice == "Sair":
-        print("Saindo...")
+        print("👋 Saindo...")
         return
 
-    # Menu para seleção de modelo
+    # 🛠️ Menu para seleção de modelo
     menu_model = [
         {
             "type": "list",
@@ -109,31 +111,34 @@ def main():
 
     selected_model = escolher_opcao(menu_model)
     if selected_model == "Sair":
-        print("Saindo...")
+        print("👋 Saindo...")
         return
 
     # Exibindo as escolhas
-    print(f"Voz escolhida: {selected_voice}")
-    print(f"Modelo escolhido: {selected_model} ({MODELS[selected_model]})")
+    print(f"🎙️ Voz escolhida: {selected_voice}")
+    print(f"🛠️ Modelo escolhido: {selected_model} ({MODELS[selected_model]})")
 
-    # Solicitar texto ao usuário
-    user_input = input("Digite o texto a ser falado: ")
+    # 📝 Solicitar texto ao usuário
+    user_input = input("Digite o texto a ser falado ou 'Sair': ")
     if not user_input:
         user_input = "Bem vindo, ao Lyra_Speech! Como posso ajudar você hoje?"
+    elif user_input.lower() == "sair":
+        print("👋 Saindo...")
+        return
 
-    # Verificar no cache antes de gerar o áudio
+    # 🔍 Verificar no cache antes de gerar o áudio
     cache_key = get_cache_key(user_input, selected_voice, 0.96)
-    cached_audio = load_from_cache(cache_key, download_dir)
+    cached_audio = load_from_cache(cache_key)
 
     if cached_audio:
-        print(f"Usando áudio em cache: {cached_audio}")
+        print(f"♻️ Usando áudio em cache: {cached_audio}")
     else:
         try:
-            # Gerar o áudio usando a API da OpenAI
+            # 🎵 Gerar o áudio usando a API da OpenAI
             response = generate_speech(client, user_input, selected_voice, 0.96)
-            save_to_cache(response, cache_key, download_dir)
+            save_to_cache(response, cache_key)
         except Exception as e:
-            print(f"Ocorreu um erro ao processar a solicitação: {e}")
+            print(f"❌ Ocorreu um erro ao processar a solicitação: {e}")
 
 
 if __name__ == "__main__":
