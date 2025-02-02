@@ -2,31 +2,38 @@ import hashlib
 import os
 from pathlib import Path
 
+import config  # Importando as configurações
 import keyring
+from dotenv import load_dotenv
 from InquirerPy import prompt
 from openai import OpenAI
 
-# 🔍 Obtém o diretório onde o script `main.py` está localizado
+# 🔍 Obtém o diretório onde `main.py` está localizado
 BASE_DIR = Path(__file__).parent.resolve()
-download_dir = BASE_DIR / "downloads_ia"
-download_dir.mkdir(exist_ok=True)  # Cria a pasta se não existir
+download_dir = BASE_DIR / config.DOWNLOAD_FOLDER  # Usando `config.py`
+download_dir.mkdir(exist_ok=True)
 
 # 🔐 Tentar carregar a chave da API do keyring
-API_KEY = keyring.get_password("openai", "api_key")
+API_KEY_KEYRING = keyring.get_password("openai", "api_key")
+
+# 🔐 Tentar carregar a chave da API do .ENV
+load_dotenv()
+API_KEY_ENV = os.getenv("OPENAI_API_KEY")
+
+# Escolher a melhor chave disponível
+if API_KEY_KEYRING:
+    API_KEY = API_KEY_KEYRING
+elif API_KEY_ENV:
+    API_KEY = API_KEY_ENV
+else:
+    API_KEY = None
 
 if not API_KEY:
     raise ValueError(
-        "A chave da API não foi encontrada no keyring. Configure-a primeiro."
+        "❌ A chave da API não foi encontrada no keyring nem no .env. Configure-a primeiro."
     )
 
 client = OpenAI(api_key=API_KEY)
-
-# 🎛️ Configurações de modelos e vozes
-MODELS = {
-    "tts-1": "Menor qualidade | barato",
-    "tts-1-hd": "Maior qualidade | 2x mais caro",
-}
-VOICES = ["echo", "alloy", "fable", "onyx", "ash", "coral", "nova", "sage", "shimmer"]
 
 
 # 🔹 Funções auxiliares
@@ -77,12 +84,7 @@ def generate_speech(client, text, voice="echo", speed=0.96):
     return response
 
 
-def escolher_opcao(menu):
-    """Exibe um menu interativo para o usuário selecionar uma opção."""
-    result = prompt(menu)
-    return result[menu[0]["name"]]
-
-
+# 🎤 Função principal
 def main():
     # 🎤 Menu para seleção de voz
     menu_voz = [
@@ -90,11 +92,11 @@ def main():
             "type": "list",
             "name": "voice",
             "message": "Escolha uma voz do menu:",
-            "choices": VOICES + ["Sair"],
+            "choices": config.VOICES + ["Sair"],  # Usando `config.py`
         },
     ]
 
-    selected_voice = escolher_opcao(menu_voz)
+    selected_voice = prompt(menu_voz)["voice"]
     if selected_voice == "Sair":
         print("👋 Saindo...")
         return
@@ -105,37 +107,50 @@ def main():
             "type": "list",
             "name": "model",
             "message": "Escolha um modelo do menu:",
-            "choices": list(MODELS.keys()) + ["Sair"],
+            "choices": list(config.MODELS.keys()) + ["Sair"],  # Usando `config.py`
         },
     ]
 
-    selected_model = escolher_opcao(menu_model)
+    selected_model = prompt(menu_model)["model"]
     if selected_model == "Sair":
         print("👋 Saindo...")
         return
 
-    # Exibindo as escolhas
     print(f"🎙️ Voz escolhida: {selected_voice}")
-    print(f"🛠️ Modelo escolhido: {selected_model} ({MODELS[selected_model]})")
+    print(f"🛠️ Modelo escolhido: {selected_model} ({config.MODELS[selected_model]})")
 
     # 📝 Solicitar texto ao usuário
-    user_input = input("Digite o texto a ser falado ou 'Sair': ")
+    user_input = input("📝 Digite o texto a ser falado: ").strip()
     if not user_input:
-        user_input = "Bem vindo, ao Lyra_Speech! Como posso ajudar você hoje?"
-    elif user_input.lower() == "sair":
-        print("👋 Saindo...")
-        return
+        user_input = "Bem-vindo ao Lyra Speech! Como posso ajudar você hoje?"
+
+    # 🕒 Solicitar velocidade da fala ao usuário
+    while True:
+        speed_input = input(
+            f"⚡ Digite a velocidade da fala (Padrão: {config.DEFAULT_SPEED} | 0.25 - 4.0): "
+        ).strip()
+        if not speed_input:  # Se não digitar nada, usa o padrão
+            speed = config.DEFAULT_SPEED
+            break
+        try:
+            speed = float(speed_input)
+            if 0.25 <= speed <= 4.0:  # Garante que está dentro do intervalo permitido
+                break
+            else:
+                print("❌ Velocidade inválida! Insira um valor entre 0.25 e 4.0.")
+        except ValueError:
+            print("❌ Entrada inválida! Digite um número decimal (ex: 1.2).")
 
     # 🔍 Verificar no cache antes de gerar o áudio
-    cache_key = get_cache_key(user_input, selected_voice, 0.96)
+    cache_key = get_cache_key(user_input, selected_voice, speed)
     cached_audio = load_from_cache(cache_key)
 
     if cached_audio:
         print(f"♻️ Usando áudio em cache: {cached_audio}")
     else:
         try:
-            # 🎵 Gerar o áudio usando a API da OpenAI
-            response = generate_speech(client, user_input, selected_voice, 0.96)
+            print("🎤 Gerando áudio, aguarde...")
+            response = generate_speech(client, user_input, selected_voice, speed)
             save_to_cache(response, cache_key)
         except Exception as e:
             print(f"❌ Ocorreu um erro ao processar a solicitação: {e}")
